@@ -1,6 +1,8 @@
 # main_app.py
 import tkinter as tk
 from tkinter import ttk
+
+from result_app import ResultApp
 # Import các màu cần thiết cho widget tk (không phải ttk)
 from styles import ENTRY_BG_COLOR, FG_COLOR, BG_COLOR
 from gemini_service import suggest_idea, generate_script_and_characters
@@ -177,12 +179,15 @@ class MainApp(ttk.Frame):
 
     def create_story(self):
         content, duration, language, aspect = self.get_all()
+        result_app = ResultApp(self,content, duration, language, aspect)
+        self.pack_forget()
+        result_app.pack(expand=True, fill="both")
         # self.show_loading()
-        self.create_button.config(state='disabled')
-        self.loading_label.pack(pady=5)
-        self.progressbar.pack(pady=10, fill="x", padx=50)
-        self.progressbar.start(10)  # Bắt đầu chạy animation
-        threading.Thread(target=self.run_api_in_thread,args=(content, duration, language, aspect), daemon=True).start()
+        # self.create_button.config(state='disabled')
+        # self.loading_label.pack(pady=5)
+        # self.progressbar.pack(pady=10, fill="x", padx=50)
+        # self.progressbar.start(10)  # Bắt đầu chạy animation
+        # threading.Thread(target=self.run_api_in_thread,args=(content, duration, language, aspect), daemon=True).start()
         # print(idea)
 
 
