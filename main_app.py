@@ -9,7 +9,7 @@ from gemini_service import suggest_idea, generate_script_and_characters
 import threading
 
 class MainApp(ttk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent,create_story):
         super().__init__(parent, style="TFrame", padding="40 40 40 40")
         center_frame = ttk.Frame(self, style="TFrame")
         center_frame.place(relx=0.5, rely=0.5, anchor="center")
@@ -128,7 +128,7 @@ class MainApp(ttk.Frame):
         # --- Nút Create ---
         self.create_button = ttk.Button(self,
                                    text="Create Story & Characters",
-                                   command=self.create_story,
+                                   command=create_story,
                                    style="Create.TButton")
         self.create_button.pack(fill="x", ipady=10, pady=10, )
         center_frame = ttk.Frame(self, style="TFrame")

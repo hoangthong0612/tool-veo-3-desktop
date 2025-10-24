@@ -7,6 +7,7 @@ import threading
 import requests  # Đã import từ lần trước
 
 from helper import load_config
+from result_app import ResultApp
 # Import các thành phần từ các file khác
 from styles import setup_styles, BG_COLOR
 from setup_window import SetupWindow
@@ -33,7 +34,7 @@ class Application(tk.Tk):
         load_config(self)
 
         self.setup_frame = SetupWindow(self, submit_command=self.start_validation_thread)
-        self.main_app_frame = MainApp(self)
+        self.main_app_frame = MainApp(self,create_story=self.create_story)
 
         # Logic điền form (giữ nguyên)
         if self.cookie or self.api_key:
@@ -172,6 +173,12 @@ class Application(tk.Tk):
         except Exception as e:
             print(f"Lỗi khi lưu config: {e}")
 
+    def create_story(self):
+        content, duration, language, aspect = self.main_app_frame.get_all()
+        result_app = ResultApp(self,content, duration, language, aspect)
+        self.main_app_frame.pack_forget()
+        result_app.title = "Kết quả"
+        result_app.pack(expand=True, fill="both")
     # --- THAY ĐỔI HÀM NÀY ---
     # def load_config(self):
     #     """Tải cookie, api_key, và access_token từ file config.json nếu có"""
