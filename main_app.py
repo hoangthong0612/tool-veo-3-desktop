@@ -206,4 +206,4 @@ class MainApp(ttk.Frame):
         language = self.lang_combo.get()
         aspect = self.aspect_combo.get()
 
-        return content, duration, language, aspect
+        return content, duration, language, aspect,style
