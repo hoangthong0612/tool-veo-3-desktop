@@ -13,6 +13,7 @@ from styles import setup_styles, BG_COLOR
 from setup_window import SetupWindow
 from main_app import MainApp
 
+
 CONFIG_FILE = "config.json"
 
 
@@ -174,8 +175,8 @@ class Application(tk.Tk):
             print(f"Lỗi khi lưu config: {e}")
 
     def create_story(self):
-        content, duration, language, aspect = self.main_app_frame.get_all()
-        result_app = ResultApp(self,content, duration, language, aspect)
+        content, duration, language, aspect, style = self.main_app_frame.get_all()
+        result_app = ResultApp(self,content, duration, language, aspect, style)
         self.main_app_frame.pack_forget()
         result_app.title = "Kết quả"
         result_app.pack(expand=True, fill="both")
