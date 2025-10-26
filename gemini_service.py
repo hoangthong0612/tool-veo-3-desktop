@@ -35,7 +35,7 @@ def generate_script_and_characters(mode: GenerationMode, idea="", style="", dura
                     "properties": {
                         "name": {"type": "string"},
                         "description": {"type": "string",
-                                        "description": "A highly detailed visual description of the character's appearance, in English. Ensure the character's facial features and ethnicity are appropriate for the story's geographical and cultural setting. Include details on facial features, hair, body type, clothing, accessories, and demeanor for consistent image generation"},
+                                        "description": "A highly detailed visual description of the character's appearance, in English. Ensure the character's facial features and ethnicity are appropriate for the story's geographical and cultural setting. Include details on facial features, hair, body type, clothing, accessories, and demeanor for consistent image generation, maximum 3 characters"},
                     },
                     "required": ["name", "description"]
                 }

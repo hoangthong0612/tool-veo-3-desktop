@@ -175,8 +175,8 @@ class Application(tk.Tk):
             print(f"Lỗi khi lưu config: {e}")
 
     def create_story(self):
-        content, duration, language, aspect, style = self.main_app_frame.get_all()
-        result_app = ResultApp(self,content, duration, language, aspect, style)
+        content, duration, language, aspect, style, folder = self.main_app_frame.get_all()
+        result_app = ResultApp(self,content, duration, language, aspect, style, folder)
         self.main_app_frame.pack_forget()
         result_app.title = "Kết quả"
         result_app.pack(expand=True, fill="both")
