@@ -8,11 +8,26 @@ import threading
 import subprocess
 import platform
 from PIL import Image, ImageTk
-import concurrent.futures  # Thêm import này
+import concurrent.futures
+from enum import Enum  # <-- THÊM MỚI: Cần thiết cho GenerationMode
+
+
+# --- ĐỊNH NGHĨA MỚI ---
+# Đặt Enum này ở đây hoặc import từ file service của bạn
+class GenerationMode(Enum):
+    IDEA = 'idea'
+    SCRIPT = 'script'
+
 
 # Giả sử các import này là chính xác
 from styles import ENTRY_BG_COLOR, FG_COLOR, BG_COLOR
-from gemini_service import suggest_idea, generate_script_and_characters, generate_scene_prompts
+
+# --- THAY ĐỔI IMPORT ---
+# Xóa: suggest_idea, generate_script_and_characters, generate_scene_prompts
+# Thêm: generate_full_video_plan
+from gemini_service import generate_full_video_plan
+# --- HẾT THAY ĐỔI IMPORT ---
+
 from api_service import (
     create_or_update_workflow,
     generate_image_subject_text,
@@ -62,7 +77,7 @@ class ResultApp(ttk.Frame):
         threading.Thread(target=self.run_api_in_thread, daemon=True).start()
 
     # ===============================
-    # TẠO BẢNG SCENE RỖNG
+    # TẠO BẢNG SCENE RỖNG (Không thay đổi)
     # ===============================
     def init_scene_table(self, scenes):
         frame = ttk.Frame(self)
@@ -110,7 +125,7 @@ class ResultApp(ttk.Frame):
             self.table_rows.append(row)
 
     # ===============================
-    # CẬP NHẬT ẢNH VÀ TRẠNG THÁI
+    # CẬP NHẬT ẢNH VÀ TRẠNG THÁI (Không thay đổi)
     # ===============================
     def update_scene_image(self, index, image_path):
         try:
@@ -137,7 +152,7 @@ class ResultApp(ttk.Frame):
             print(f"update_scene_status error (index {index}): {e}")
 
     # ===============================
-    # MỞ VIDEO
+    # MỞ VIDEO (Không thay đổi)
     # ===============================
     def open_video(self, file_path):
         try:
@@ -151,7 +166,7 @@ class ResultApp(ttk.Frame):
             print(f"Lỗi mở video: {e}")
 
     # ===============================
-    # GÁN SỰ KIỆN CLICK CHO ẢNH
+    # GÁN SỰ KIỆN CLICK CHO ẢNH (Không thay đổi)
     # ===============================
     def make_thumbnail_clickable(self, index, video_path):
         """Gán sự kiện click để mở video cho thumbnail."""
@@ -164,7 +179,7 @@ class ResultApp(ttk.Frame):
             print(f"Lỗi khi gán click cho thumbnail {index}: {e}")
 
     # ===============================
-    # (MỚI) HÀM XỬ LÝ TỪNG SCENE (CHO THREAD)
+    # (MỚI) HÀM XỬ LÝ TỪNG SCENE (CHO THREAD) (Không thay đổi)
     # ===============================
     def process_scene(self, index, scene, image_folder, video_folder):
         """
@@ -245,7 +260,7 @@ class ResultApp(ttk.Frame):
             raise e
 
     # ===============================
-    # LUỒNG CHÍNH CHẠY API
+    # LUỒNG CHÍNH CHẠY API (ĐÃ TỐI ƯU)
     # ===============================
     def run_api_in_thread(self):
         try:
@@ -258,20 +273,20 @@ class ResultApp(ttk.Frame):
             self.project_id = project_res.get("projectId")
             self._log_state(f"Project: {self.project_id}")
 
-            self._log_state("Gợi ý ý tưởng...")
-            # idea = suggest_idea(self.content)
+            self._log_state("Đang tạo kế hoạch video (kịch bản, nhân vật, cảnh)...")
 
-            self._log_state("Tạo kịch bản & nhân vật...")
-            result_scripts = generate_script_and_characters(
+            video_plan = generate_full_video_plan(
+                mode=GenerationMode.IDEA,
                 idea=self.content,
-                duration=self.duration,
                 style=self.style,
-                mode='idea',
-                language=self.language
+                duration=self.duration,
+                language=self.language,
+                include_narration=False
             )
 
-            print("Kịch bản")
-            print(result_scripts)
+            print("--- DEBUG: KẾ HOẠCH VIDEO ĐẦY ĐỦ TỪ GEMINI ---")
+            print(video_plan)
+            print("---------------------------------------------")
 
             character_folder = os.path.join(self.folder, "characters")
             image_folder = os.path.join(self.folder, "images")
@@ -280,86 +295,130 @@ class ResultApp(ttk.Frame):
             os.makedirs(image_folder, exist_ok=True)
             os.makedirs(video_folder, exist_ok=True)
 
-            # Sinh nhân vật
+            # --- BẮT ĐẦU VÒNG LẶP SINH NHÂN VẬT (ĐÃ CẬP NHẬT) ---
             self.characters = []
-            for idx, ch in enumerate(result_scripts.get("characters", [])):
+
+            characters_list = video_plan.get("characters", [])
+            self._log_state(f"Tìm thấy {len(characters_list)} nhân vật. Đang tạo ảnh tham chiếu...")
+
+            if not characters_list:
+                self._log_state("⚠️ Cảnh báo: Kế hoạch video không trả về nhân vật nào.")
+
+            for idx, ch in enumerate(characters_list):
                 desc = ch.get("description", "")
                 name = ch.get("name", f"char_{idx + 1}")
-                self._log_state(f"Tạo ảnh nhân vật: {name}...")
+                self._log_state(f"Đang chuẩn bị tạo ảnh cho NV: {name}...")
+
+                # Kiểm tra xem mô tả có rỗng không
+                if not desc:
+                    self._log_state(f"⚠️ Lỗi: Mô tả cho nhân vật {name} bị rỗng. Bỏ qua...")
+                    continue
+
+                print(f"\n--- DEBUG: Đang gửi mô tả cho generate_image_subject_text ---")
+                print(f"Nhân vật: {name}")
+                print(f"Mô tả: {desc}")
+                print(f"----------------------------------------------------------\n")
+
+                # Gọi API tạo ảnh
                 image_data = generate_image_subject_text(
                     description=desc,
                     workflow_id=self.workflow_id,
                     aspect_ratio=self.aspect,
                     style=self.style
                 )
+
+                print(f"--- DEBUG: Phản hồi THÔ từ generate_image_subject_text cho NV {name} ---")
+                print(image_data)
+                print(f"------------------------------------------------------------------\n")
+
+                # --- BẮT ĐẦU KHỐI KIỂM TRA LỖI MỚI ---
+
+                # 1. Kiểm tra xem API có trả về gì không
+                if not image_data or not isinstance(image_data, dict):
+                    self._log_state(
+                        f"⚠️ LỖI NGHIÊM TRỌNG: API tạo ảnh NV {name} trả về rỗng (null) hoặc không phải dict.")
+                    continue  # Bỏ qua nhân vật này
+
+                # 2. Lấy dữ liệu ảnh base64
+                image_base64_data = image_data.get("image")
+
+                # 3. Kiểm tra xem key 'image' có tồn tại và có dữ liệu không
+                # Đây chính là nơi phát sinh lỗi "Reference image data not found"
+                if not image_base64_data:
+                    self._log_state(
+                        f"⚠️ LỖI: Không tìm thấy 'image' data cho NV {name}. Rất có thể mô tả đã bị Safety Filter chặn.")
+                    # (Không 'continue', chúng ta vẫn có thể cần 'id' ngay cả khi không có ảnh)
+                    # Tạm thời chúng ta sẽ bỏ qua
+                    continue
+
+                    # 4. Nếu có dữ liệu, thử decode
                 try:
-                    image_bytes = base64.b64decode(image_data.get("image", ""))
+                    image_bytes = base64.b64decode(image_base64_data)
                     image_path = os.path.join(character_folder, f"{name}.png")
                     with open(image_path, "wb") as f:
                         f.write(image_bytes)
-                except Exception as e:
-                    self._log_state(f"Lỗi lưu ảnh nhân vật {name}: {e}")
+                        self._log_state(f"✅ Đã lưu ảnh cho NV: {name}")
 
+                except (base64.binascii.Error, Exception) as e:
+                    self._log_state(f"⚠️ Lỗi decode Base64 cho NV {name}: {e}. Dữ liệu Base64 có thể bị hỏng.")
+                    continue  # Bỏ qua nếu không decode được
+
+                # 5. Nếu mọi thứ thành công, mới thêm vào danh sách
                 self.characters.append({
                     "id": image_data.get("id"),
                     "promptImage": image_data.get("promptImage"),
-                    "refImageBase64": image_data.get("image"),
-                    "refImageUrl": f"data:image/png;base64,{image_data.get('image', '')}",
+                    "refImageBase64": image_base64_data,
+                    "refImageUrl": f"data:image/png;base64,{image_base64_data}",
                     "name": name,
                     "image_path": image_path
                 })
 
-            self._log_state("Tạo scene prompts...")
-            self.screens = generate_scene_prompts(
-                language=self.language,
-                duration=self.duration,
-                characters=result_scripts.get("characters", []),
-                style=self.style,
-                script=result_scripts.get('script',""),
-                include_narration=False
+                # --- KẾT THÚC KHỐI KIỂM TRA LỖI MỚI ---
 
-            )
+            # --- KẾT THÚC VÒNG LẶP SINH NHÂN VẬT ---
 
-            # Hiển thị bảng ngay khi có scene
+            # Lấy danh sách scenes trực tiếp từ video_plan
+            self.screens = video_plan.get("scenes", [])
+
+            if not self.screens:
+                self._log_state("⚠️ LỖI NGHIÊM TRỌNG: Kế hoạch video không trả về 'scenes' nào.")
+                raise Exception("Không tạo được scene, video plan bị lỗi.")
+
+            self._log_state(f"Đã tạo {len(self.screens)} scene. Hiển thị bảng...")
             self.after(0, lambda: self.init_scene_table(self.screens))
 
-            # === (THAY ĐỔI) TẠO TASK BẤT ĐỒNG BỘ ===
-
+            # === (Giữ nguyên) TẠO TASK BẤT ĐỒNG BỘ ===
             NUM_WORKERS = 8
             self._log_state(f"Bắt đầu tạo video cho {len(self.screens)} scene (chạy {NUM_WORKERS} luồng song song)...")
-
-            # Sử dụng ThreadPoolExecutor để chạy các tác vụ song song
+            print("self.screens")
+            print(self.screens)
             with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-
                 futures = []
                 for index, scene in enumerate(self.screens):
-                    # Gửi từng task (process_scene) vào executor
                     future = executor.submit(
-                        self.process_scene,  # Hàm để chạy
-                        index,  # Argument
-                        scene,  # Argument
-                        image_folder,  # Argument
-                        video_folder  # Argument
+                        self.process_scene,
+                        index,
+                        scene,
+                        image_folder,
+                        video_folder
                     )
                     futures.append(future)
 
-                # Chờ tất cả các luồng hoàn thành
                 for future in concurrent.futures.as_completed(futures):
                     try:
-                        future.result()  # Lấy kết quả (hoặc exception) từ thread
+                        future.result()
                     except Exception as e:
                         self._log_state(f"Một luồng xử lý scene gặp lỗi: {e}")
                         print(f"THREAD POOL EXCEPTION: {e}")
 
-            # Dòng này chỉ chạy KHI TẤT CẢ các scene đã được xử lý
             self.after(0, lambda: self.loading_label.config(text="✅ Hoàn tất tất cả scene!"))
 
         except Exception as e:
             self._log_state(f"THREAD ERROR: {e}")
-            self.after(0, lambda: self.loading_label.config(text=f"Lỗi: {e}"))
+            self.after(0, lambda err=e: self.loading_label.config(text=f"Lỗi: {err}"))
 
     # ===============================
-    # LOG TRẠNG THÁI
+    # LOG TRẠNG THÁI (Không thay đổi)
     # ===============================
     def _log_state(self, message: str):
         print(message)
