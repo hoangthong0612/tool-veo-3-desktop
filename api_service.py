@@ -9,6 +9,7 @@ from helper import get_config
 import json
 import uuid
 
+
 def create_or_update_workflow():
     try:
         # Tạo sessionId ngẫu nhiên 13 chữ số
@@ -133,91 +134,184 @@ def generate_image_subject_text(workflow_id=None, description="", aspect_ratio="
         return None
 
 
+# Tỷ lệ khung hình API
+ASPECT_RATIO_MAP = {
+    "9:16": "IMAGE_ASPECT_RATIO_PORTRAIT",
+    "16:9": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+    "1:1": "IMAGE_ASPECT_RATIO_SQUARE"
+}
+
+
 def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_ratio: str, style: str):
+    """
+        Gọi API để tạo hình ảnh cho một cảnh, chỉ sử dụng các nhân vật có trong cảnh đó.
+        """
     try:
-        # 🔸 Kiểm tra tham số
+        # 🔸 1. Kiểm tra tham số (Giữ nguyên)
         if not workflow_id or not scene:
-            messagebox.showerror("Lỗi", "Thiếu tham số.")
+            messagebox.showerror("Lỗi", "Thiếu workflow_id hoặc scene.")
             return None
 
         token = get_config().get('access_token', "")
         if not token:
-            messagebox.showerror("Lỗi", "Token không hợp lệ.")
+            messagebox.showerror("Lỗi", "Token không hợp lệ hoặc đã hết hạn.")
             return None
 
-        full_image_prompt = f"""{scene['imagePrompt']}, in the style of {style}"""
-        # 🔸 Xử lý danh sách nhân vật (character)
+        # 🔸 2. Kiểm tra prompt (Giữ nguyên)
+        image_prompt_text = scene.get("imagePrompt")
+        if not image_prompt_text:
+            msg = f"Lỗi nghiêm trọng: Scene {scene.get('sceneNumber')} có 'imagePrompt' rỗng. Không thể tạo ảnh."
+            print(msg)
+            messagebox.showerror("Lỗi Prompt", msg)
+            return None
+
+        full_image_prompt = f"{image_prompt_text}, in the style of {style}"
+
+        # 🔸 3. Xử lý danh sách nhân vật (Giữ nguyên)
         image_parts = []
-        for character in characters:
-            if character.get("refImageBase64"):
-                image_parts.append({
-                    "mediaInput": {
-                        "mediaCategory": "MEDIA_CATEGORY_SUBJECT",
-                        "mediaGenerationId": character["id"]
-                    }
-                })
+        required_char_names = scene.get("charactersInScene", [])
 
-        # 🔸 Xác định tỷ lệ ảnh
-        aspect_map = {
-            "9:16": "IMAGE_ASPECT_RATIO_PORTRAIT",
-            "16:9": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-            "1:1": "IMAGE_ASPECT_RATIO_SQUARE"
-        }
+        if required_char_names:
+            character_map = {char['name']: char for char in characters}
+            for name in required_char_names:
+                character = character_map.get(name)
+                if character and character.get("refImageBase64") and character.get("id"):
+                    image_parts.append({
+                        "mediaInput": {
+                            "mediaCategory": "MEDIA_CATEGORY_SUBJECT",
+                            "mediaGenerationId": character["id"]
+                        }
+                    })
+                # (Các print cảnh báo khác giữ nguyên)
 
-        # 🔸 Sinh sessionId ngẫu nhiên (13 ký tự)
-        session_id = ";" + "".join([str(random.randint(0, 9)) for _ in range(13)])
+        # 🔸 4. (ĐÃ CẬP NHẬT) Chuẩn bị Payload và URL động
 
-        # 🔸 Dữ liệu gửi đi
-        payload = {
-            "clientContext": {
-                "workflowId": workflow_id,
-                "tool": "BACKBONE",
-                "sessionId": session_id
-            },
-            "seed": 1000000,
-            "imageModelSettings": {
-                "imageModel": "R2I",
-                "aspectRatio": aspect_map.get(aspect_ratio, "IMAGE_ASPECT_RATIO_PORTRAIT")
-            },
-            "userInstruction": full_image_prompt,
-            "recipeMediaInputs": image_parts
-        }
+        session_id = f";{random.randint(10 ** 12, (10 ** 13) - 1)}"
+        api_url = ""
+        payload = {}
 
-        print("📤 Payload gửi đi:")
+        # Lấy giá trị aspect ratio, mặc định là PORTRAIT
+        aspect_ratio_value = ASPECT_RATIO_MAP.get(aspect_ratio, "IMAGE_ASPECT_RATIO_PORTRAIT")
 
-        # 🔸 Gửi request tạo ảnh
+        # --- BẮT ĐẦU LOGIC RẼ NHÁNH ---
+        if not image_parts:
+            # --- TRƯỜNG HỢP 1: KHÔNG có nhân vật (len = 0) ---
+            # Gọi API 'generateImage'
+            api_url = "https://aisandbox-pa.googleapis.com/v1/whisk:generateImage"
+            payload = {
+                "clientContext": {
+                    "workflowId": workflow_id,  # Dùng workflow_id động
+                    "tool": "BACKBONE",
+                    "sessionId": session_id
+                },
+                "imageModelSettings": {
+                    "imageModel": "IMAGEN_3_5",  # Model như bạn yêu cầu
+                    "aspectRatio": aspect_ratio_value
+                },
+                "seed": 1000000,  # Giữ seed cố định
+                "prompt": full_image_prompt,  # Dùng prompt đã xử lý
+                "mediaCategory": "MEDIA_CATEGORY_BOARD"
+            }
+            print(f"📤 Gửi payload (generateImage) cho Scene: {scene.get('sceneNumber')}")
+
+        else:
+            # --- TRƯỜNG HỢP 2: CÓ nhân vật (len > 0) ---
+            # Gọi API 'runImageRecipe' (như cũ)
+            api_url = "https://aisandbox-pa.googleapis.com/v1/whisk:runImageRecipe"
+            payload = {
+                "clientContext": {
+                    "workflowId": workflow_id,
+                    "tool": "BACKBONE",
+                    "sessionId": session_id
+                },
+                "seed": 1000000,
+                "imageModelSettings": {
+                    "imageModel": "R2I",
+                    "aspectRatio": aspect_ratio_value
+                },
+                "userInstruction": full_image_prompt,
+                "recipeMediaInputs": image_parts
+            }
+            print(f"📤 Gửi payload (runImageRecipe) cho Scene: {scene.get('sceneNumber')}")
+
+        # --- KẾT THÚC LOGIC RẼ NHÁNH ---
+
+        print(json.dumps(payload, indent=2))  # In payload ra để debug
+
+        # 🔸 5. Gửi request (Giờ đã dùng api_url động)
         res = requests.post(
-            "https://aisandbox-pa.googleapis.com/v1/whisk:runImageRecipe",
+            api_url,
             headers={"Authorization": f"Bearer {token}"},
-            json=payload
+            json=payload,
+            timeout=60
         )
 
+        # 🔸 6. Xử lý phản hồi (ĐÃ CẬP NHẬT)
         if res.status_code != 200:
-            messagebox.showerror("Lỗi", "Không có dữ liệu")
+            print(f"Lỗi API tạo ảnh: {res.status_code} - {res.text}")
+            messagebox.showerror("Lỗi API", f"Không thể tạo ảnh (Lỗi {res.status_code}). Chi tiết: {res.text}")
+            return None
 
         data = res.json()
-        image_panels = data.get("imagePanels", []) or []
+        print("--- DEBUG: Phản hồi THÔ từ API ---")
+        print(json.dumps(data, indent=2))
+        print("-----------------------------------")
 
-        # Kiểm tra dữ liệu hợp lệ
-        if not image_panels or not image_panels[0].get("generatedImages"):
-            messagebox.showerror("Lỗi", "Reference image data not found in response.")
-            return None
-        # Lấy ảnh đầu tiên
-        first_image = image_panels[0]["generatedImages"][0]
-        image_part = first_image.get("encodedImage")
-        media_id = first_image.get("mediaGenerationId")
+        image_part = None
+        media_id = None
+
+        # --- BẮT ĐẦU LOGIC PARSE PHẢN HỒI (MỚI) ---
+        if not image_parts:
+            # Phản hồi từ 'generateImage'
+            # Giả định cấu trúc là: {"generatedImages": [{"encodedImage": "...", "mediaGenerationId": "..."}]}
+            try:
+                generated_images = data.get("generatedImages", [])
+                if not generated_images:
+                    raise Exception("Không tìm thấy 'generatedImages' trong phản hồi.")
+
+                first_image = generated_images[0]
+                image_part = first_image.get("encodedImage")
+                media_id = first_image.get("mediaGenerationId")
+            except Exception as e:
+                print(f"Lỗi Parse (generateImage): {e}. Phản hồi: {data}")
+                messagebox.showerror("Lỗi", f"Lỗi phân tích phản hồi 'generateImage': {e}")
+                return None
+        else:
+            # Phản hồi từ 'runImageRecipe' (như cũ)
+            try:
+                image_panels = data.get("imagePanels", [])
+                if not image_panels or not image_panels[0].get("generatedImages"):
+                    raise Exception("Không tìm thấy 'imagePanels' hoặc 'generatedImages' trong phản hồi.")
+
+                first_image = image_panels[0]["generatedImages"][0]
+                image_part = first_image.get("encodedImage")
+                media_id = first_image.get("mediaGenerationId")
+            except Exception as e:
+                print(f"Lỗi Parse (runImageRecipe): {e}. Phản hồi: {data}")
+                messagebox.showerror("Lỗi", f"Lỗi phân tích phản hồi 'runImageRecipe': {e}")
+                return None
+
+        # --- KẾT THÚC LOGIC PARSE PHẢN HỒI ---
 
         if not image_part:
-            messagebox.showerror("Lỗi", "Reference image data not found in response.")
+            print(f"Lỗi Phản hồi: 'encodedImage' bị rỗng. Phản hồi: {data}")
+            messagebox.showerror("Lỗi", "Reference image data not found in response (empty).")
             return None
 
+        # Trả về kết quả đã chuẩn hóa
         return {
             "id": media_id,
             "image": image_part
         }
 
+    except requests.exceptions.RequestException as e:
+        print(f"Lỗi Mạng (RequestException): {e}")
+        messagebox.showerror("Lỗi Mạng", f"Không thể kết nối đến server: {e}")
+        return None
     except Exception as e:
-        messagebox.showerror("Lỗi", e)
+        print(f"Lỗi không xác định trong run_image_recipe: {e}")
+        messagebox.showerror("Lỗi", f"Đã xảy ra lỗi: {e}")
+        return None
 
 
 def create_project():
@@ -260,7 +354,6 @@ def generateVideoForScene(scene: dict, image_data: dict, aspect_ratio: str, proj
         if not token:
             messagebox.showerror("Lỗi", "Token không hợp lệ.")
             return None
-
 
             # --- 2️⃣ Xử lý aspect ratio & model ---
         aspect_ratio_setting = "VIDEO_ASPECT_RATIO_PORTRAIT"
@@ -319,6 +412,7 @@ def generateVideoForScene(scene: dict, image_data: dict, aspect_ratio: str, proj
         messagebox.showerror("Lỗi", e)
         return {"status": 0, "message": "Lỗi proxy"}
 
+
 def check_video_generation_status(name: str, screen_id: str):
     """
     Kiểm tra trạng thái video đang được sinh từ Google AI Sandbox API.
@@ -366,4 +460,3 @@ def check_video_generation_status(name: str, screen_id: str):
     except Exception as e:
         print("❌ Lỗi trong quá trình kiểm tra video:", e)
         return {"status": 0, "message": "Lỗi proxy"}
-
