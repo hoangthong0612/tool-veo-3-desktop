@@ -1,11 +1,9 @@
-from type import Scene
-
-API_BASE_URL = "https://api.example.com"  # thay bằng API thật của bạn
+from app.utils.models import Scene # <-- SỬA IMPORT
 from tkinter import messagebox
 import requests
 import random
 import time
-from helper import get_config
+from app.utils.helper import get_config # <-- SỬA IMPORT
 import json
 import uuid
 
@@ -144,20 +142,21 @@ ASPECT_RATIO_MAP = {
 
 def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_ratio: str, style: str):
     """
-        Gọi API để tạo hình ảnh cho một cảnh, chỉ sử dụng các nhân vật có trong cảnh đó.
-        """
+    Gọi API để tạo hình ảnh cho một cảnh.
+    ĐÃ SỬA LỖI: Loại bỏ trường "name" không hợp lệ khỏi payload.
+    """
     try:
-        # 🔸 1. Kiểm tra tham số (Giữ nguyên)
+        # 🔸 1. Kiểm tra tham số
         if not workflow_id or not scene:
-            messagebox.showerror("Lỗi", "Thiếu workflow_id hoặc scene.")
+            messagebox.showerror("Lỗi", "Thiếu workflow_id hoặc scene (run_image_recipe).")
             return None
 
         token = get_config().get('access_token', "")
         if not token:
-            messagebox.showerror("Lỗi", "Token không hợp lệ hoặc đã hết hạn.")
+            messagebox.showerror("Lỗi", "Token không hợp lệ hoặc đã hết hạn (run_image_recipe).")
             return None
 
-        # 🔸 2. Kiểm tra prompt (Giữ nguyên)
+        # 🔸 2. Kiểm tra prompt
         image_prompt_text = scene.get("imagePrompt")
         if not image_prompt_text:
             msg = f"Lỗi nghiêm trọng: Scene {scene.get('sceneNumber')} có 'imagePrompt' rỗng. Không thể tạo ảnh."
@@ -166,79 +165,100 @@ def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_rat
             return None
 
         full_image_prompt = f"{image_prompt_text}, in the style of {style}"
+        scene_number_for_logging = scene.get('sceneNumber', 'Unknown')
 
-        # 🔸 3. Xử lý danh sách nhân vật (Giữ nguyên)
-        image_parts = []
+        # ==================================================================
+        # === BẮT ĐẦU PHẦN SỬA LỖI LOGIC (Loại bỏ trường "name") ===
+        # ==================================================================
+
+        # 🔸 3. Xử lý danh sách nhân vật
+        image_parts = [] # Đây là danh sách payload CUỐI CÙNG gửi cho API
         required_char_names = scene.get("charactersInScene", [])
 
         if required_char_names:
             character_map = {char['name']: char for char in characters}
+            
+            # 1. Tìm TẤT CẢ các nhân vật hợp lệ trước
+            # Danh sách này sẽ chứa các tuple (payload_dict, name_string)
+            found_characters_for_scene = [] 
             for name in required_char_names:
                 character = character_map.get(name)
-                if character and character.get("refImageBase64") and character.get("id"):
-                    image_parts.append({
+                if character and character.get("id"):
+                    
+                    # Đây là đối tượng payload mà API CHẤP NHẬN
+                    api_payload_object = {
                         "mediaInput": {
                             "mediaCategory": "MEDIA_CATEGORY_SUBJECT",
                             "mediaGenerationId": character["id"]
                         }
-                    })
-                # (Các print cảnh báo khác giữ nguyên)
+                    }
+                    # Lưu cả payload và tên (để dùng cho cảnh báo)
+                    found_characters_for_scene.append( (api_payload_object, name) )
+                else:
+                    print(f"⚠️ Cảnh báo Scene {scene_number_for_logging}: Yêu cầu nhân vật '{name}' nhưng không tìm thấy ID ảnh tham chiếu.")
 
-        # 🔸 4. (ĐÃ CẬP NHẬT) Chuẩn bị Payload và URL động
+            # 2. Kiểm tra giới hạn 3 nhân vật
+            if len(found_characters_for_scene) > 3:
+                characters_to_send = found_characters_for_scene[:3]
+                characters_omitted = found_characters_for_scene[3:]
+                
+                # Chỉ lấy payload (phần tử [0] của tuple)
+                image_parts = [char_tuple[0] for char_tuple in characters_to_send]
+                
+                # Chỉ lấy tên (phần tử [1] của tuple) để cảnh báo
+                sent_names = [char_tuple[1] for char_tuple in characters_to_send]
+                omitted_names = [char_tuple[1] for char_tuple in characters_omitted]
+                
+                msg = f"Cảnh báo Scene {scene_number_for_logging}:\n\n" \
+                      f"Cảnh này yêu cầu {len(found_characters_for_scene)} nhân vật, nhưng API chỉ hỗ trợ tối đa 3.\n\n" \
+                      f"Đang gửi: {sent_names}\n" \
+                      f"Bỏ qua: {omitted_names}"
+                
+                print(f"❌ {msg}")
+                messagebox.showwarning("Giới hạn API (3 Nhân vật)", msg)
+                
+            else:
+                # Nếu từ 3 trở xuống, lấy tất cả payload
+                image_parts = [char_tuple[0] for char_tuple in found_characters_for_scene]
+        
+        # ==================================================================
+        # === KẾT THÚC PHẦN SỬA LỖI LOGIC ===
+        # ==================================================================
 
+
+        # 🔸 4. Chuẩn bị Payload và URL động (Giữ nguyên)
         session_id = f";{random.randint(10 ** 12, (10 ** 13) - 1)}"
         api_url = ""
         payload = {}
 
-        # Lấy giá trị aspect ratio, mặc định là PORTRAIT
         aspect_ratio_value = ASPECT_RATIO_MAP.get(aspect_ratio, "IMAGE_ASPECT_RATIO_PORTRAIT")
 
-        # --- BẮT ĐẦU LOGIC RẼ NHÁNH ---
         if not image_parts:
-            # --- TRƯỜNG HỢP 1: KHÔNG có nhân vật (len = 0) ---
-            # Gọi API 'generateImage'
+            # --- TRƯỜNG HỢP 1: KHÔNG có nhân vật (gọi generateImage) ---
             api_url = "https://aisandbox-pa.googleapis.com/v1/whisk:generateImage"
             payload = {
-                "clientContext": {
-                    "workflowId": workflow_id,  # Dùng workflow_id động
-                    "tool": "BACKBONE",
-                    "sessionId": session_id
-                },
-                "imageModelSettings": {
-                    "imageModel": "IMAGEN_3_5",  # Model như bạn yêu cầu
-                    "aspectRatio": aspect_ratio_value
-                },
-                "seed": 1000000,  # Giữ seed cố định
-                "prompt": full_image_prompt,  # Dùng prompt đã xử lý
+                "clientContext": {"workflowId": workflow_id, "tool": "BACKBONE", "sessionId": session_id},
+                "imageModelSettings": {"imageModel": "IMAGEN_3_5", "aspectRatio": aspect_ratio_value},
+                "seed": 1000000,
+                "prompt": full_image_prompt,
                 "mediaCategory": "MEDIA_CATEGORY_BOARD"
             }
-            print(f"📤 Gửi payload (generateImage) cho Scene: {scene.get('sceneNumber')}")
+            print(f"📤 Gửi payload (generateImage) cho Scene: {scene_number_for_logging}")
 
         else:
-            # --- TRƯỜNG HỢP 2: CÓ nhân vật (len > 0) ---
-            # Gọi API 'runImageRecipe' (như cũ)
+            # --- TRƯỜNG HỢP 2: CÓ nhân vật (gọi runImageRecipe) ---
             api_url = "https://aisandbox-pa.googleapis.com/v1/whisk:runImageRecipe"
             payload = {
-                "clientContext": {
-                    "workflowId": workflow_id,
-                    "tool": "BACKBONE",
-                    "sessionId": session_id
-                },
+                "clientContext": {"workflowId": workflow_id, "tool": "BACKBONE", "sessionId": session_id},
                 "seed": 1000000,
-                "imageModelSettings": {
-                    "imageModel": "R2I",
-                    "aspectRatio": aspect_ratio_value
-                },
+                "imageModelSettings": {"imageModel": "R2I", "aspectRatio": aspect_ratio_value},
                 "userInstruction": full_image_prompt,
-                "recipeMediaInputs": image_parts
+                "recipeMediaInputs": image_parts # <-- DANH SÁCH NÀY GIỜ ĐÃ SẠCH (KHÔNG CÓ "name")
             }
-            print(f"📤 Gửi payload (runImageRecipe) cho Scene: {scene.get('sceneNumber')}")
+            print(f"📤 Gửi payload (runImageRecipe) cho Scene: {scene_number_for_logging} với {len(image_parts)} nhân vật.")
 
-        # --- KẾT THÚC LOGIC RẼ NHÁNH ---
 
-        print(json.dumps(payload, indent=2))  # In payload ra để debug
-
-        # 🔸 5. Gửi request (Giờ đã dùng api_url động)
+        # 🔸 5. Gửi request (Giữ nguyên)
         res = requests.post(
             api_url,
             headers={"Authorization": f"Bearer {token}"},
@@ -246,29 +266,21 @@ def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_rat
             timeout=60
         )
 
-        # 🔸 6. Xử lý phản hồi (ĐÃ CẬP NHẬT)
+        # 🔸 6. Xử lý phản hồi (Giữ nguyên)
         if res.status_code != 200:
             print(f"Lỗi API tạo ảnh: {res.status_code} - {res.text}")
             messagebox.showerror("Lỗi API", f"Không thể tạo ảnh (Lỗi {res.status_code}). Chi tiết: {res.text}")
             return None
 
         data = res.json()
-        print("--- DEBUG: Phản hồi THÔ từ API ---")
-        print(json.dumps(data, indent=2))
-        print("-----------------------------------")
-
         image_part = None
         media_id = None
 
-        # --- BẮT ĐẦU LOGIC PARSE PHẢN HỒI (MỚI) ---
         if not image_parts:
-            # Phản hồi từ 'generateImage'
-            # Giả định cấu trúc là: {"generatedImages": [{"encodedImage": "...", "mediaGenerationId": "..."}]}
             try:
                 generated_images = data.get("generatedImages", [])
                 if not generated_images:
                     raise Exception("Không tìm thấy 'generatedImages' trong phản hồi.")
-
                 first_image = generated_images[0]
                 image_part = first_image.get("encodedImage")
                 media_id = first_image.get("mediaGenerationId")
@@ -277,12 +289,10 @@ def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_rat
                 messagebox.showerror("Lỗi", f"Lỗi phân tích phản hồi 'generateImage': {e}")
                 return None
         else:
-            # Phản hồi từ 'runImageRecipe' (như cũ)
             try:
                 image_panels = data.get("imagePanels", [])
                 if not image_panels or not image_panels[0].get("generatedImages"):
                     raise Exception("Không tìm thấy 'imagePanels' hoặc 'generatedImages' trong phản hồi.")
-
                 first_image = image_panels[0]["generatedImages"][0]
                 image_part = first_image.get("encodedImage")
                 media_id = first_image.get("mediaGenerationId")
@@ -291,14 +301,11 @@ def run_image_recipe(workflow_id: str, scene: dict, characters: list, aspect_rat
                 messagebox.showerror("Lỗi", f"Lỗi phân tích phản hồi 'runImageRecipe': {e}")
                 return None
 
-        # --- KẾT THÚC LOGIC PARSE PHẢN HỒI ---
-
         if not image_part:
             print(f"Lỗi Phản hồi: 'encodedImage' bị rỗng. Phản hồi: {data}")
             messagebox.showerror("Lỗi", "Reference image data not found in response (empty).")
             return None
 
-        # Trả về kết quả đã chuẩn hóa
         return {
             "id": media_id,
             "image": image_part
