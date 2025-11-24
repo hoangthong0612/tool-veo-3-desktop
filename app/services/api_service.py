@@ -356,68 +356,105 @@ def create_project():
 
 
 def generateVideoForScene(scene: dict, image_data: dict, aspect_ratio: str, project_id: str):
+    """
+    Tạo video.
+    - Nếu có image_data: Gọi Image-to-Video (batchAsyncGenerateVideoStartImage).
+    - Nếu image_data là None: Gọi Text-to-Video (batchAsyncGenerateVideo).
+    """
     try:
         token = get_config().get('access_token', "")
         if not token:
-            messagebox.showerror("Lỗi", "Token không hợp lệ.")
+            messagebox.showerror("Lỗi", "Token không hợp lệ (generateVideoForScene).")
             return None
 
-            # --- 2️⃣ Xử lý aspect ratio & model ---
-        aspect_ratio_setting = "VIDEO_ASPECT_RATIO_PORTRAIT"
-        model_key = "veo_3_1_i2v_s_fast_portrait_ultra"
-
-        if aspect_ratio == "16:9":
-            aspect_ratio_setting = "VIDEO_ASPECT_RATIO_LANDSCAPE"
-            model_key = "veo_3_1_i2v_s_fast_ultra"
-
-        # --- 3️⃣ Gửi request tạo video ---
-        video_url = "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
 
-        body = {
-            "clientContext": {
-                "projectId": project_id,
-                "tool": "PINHOLE",
-                "userPaygateTier": "PAYGATE_TIER_TWO"
-            },
-            "requests": [
-                {
-                    "aspectRatio": aspect_ratio_setting,
-                    "seed": 100000,
-                    "textInput": {"prompt": scene['videoPrompt']},
-                    "promptExpansionInput": {
-                        "prompt": scene['videoPrompt'],
-                        "seed": 100000,
-                        "templateId": "0TNlfC6bSF",
-                        "imageInputs": [
-                            {
-                                "mediaId": image_data["id"],
-                                "imageUsageType": "IMAGE_USAGE_TYPE_UNSPECIFIED"
-                            }
-                        ]
-                    },
-                    "videoModelKey": model_key,
-                    "startImage": {"mediaId": image_data["id"]},
-                    "metadata": {"sceneId": str(uuid.uuid4())}
-                }
-            ]
-        }
+        # --- LOGIC RẼ NHÁNH T2V / I2V ---
+        if image_data:
+            # === CASE 1: IMAGE-TO-VIDEO (Có ảnh tham chiếu) ===
+            video_url = "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage"
 
+            aspect_ratio_setting = "VIDEO_ASPECT_RATIO_PORTRAIT"
+            model_key = "veo_3_1_i2v_s_fast_portrait_ultra"
+            if aspect_ratio == "16:9":
+                aspect_ratio_setting = "VIDEO_ASPECT_RATIO_LANDSCAPE"
+                model_key = "veo_3_1_i2v_s_fast_ultra"
+
+            body = {
+                "clientContext": {
+                    "projectId": project_id,
+                    "tool": "PINHOLE",
+                    "userPaygateTier": "PAYGATE_TIER_TWO"
+                },
+                "requests": [
+                    {
+                        "aspectRatio": aspect_ratio_setting,
+                        "seed": 100000,
+                        "textInput": {"prompt": scene['videoPrompt']},
+                        "promptExpansionInput": {
+                            "prompt": scene['videoPrompt'],
+                            "seed": 100000,
+                            "templateId": "0TNlfC6bSF",
+                            "imageInputs": [
+                                {
+                                    "mediaId": image_data["id"],
+                                    "imageUsageType": "IMAGE_USAGE_TYPE_UNSPECIFIED"
+                                }
+                            ]
+                        },
+                        "videoModelKey": model_key,
+                        "startImage": {"mediaId": image_data["id"]},
+                        "metadata": {"sceneId": str(uuid.uuid4())}
+                    }
+                ]
+            }
+
+        else:
+            # === CASE 2: TEXT-TO-VIDEO (Không có ảnh tham chiếu) ===
+            video_url = "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText"
+
+            aspect_ratio_setting = "VIDEO_ASPECT_RATIO_PORTRAIT"
+            model_key = "veo_3_1_t2v_fast_portrait_ultra"  # <-- Model T2V
+            if aspect_ratio == "16:9":
+                aspect_ratio_setting = "VIDEO_ASPECT_RATIO_LANDSCAPE"
+                model_key = "veo_3_1_t2v_fast_ultra"  # <-- Model T2V Landscape
+
+            body = {
+                "clientContext": {
+                    "projectId": project_id,
+                    "tool": "PINHOLE",
+                    "userPaygateTier": "PAYGATE_TIER_TWO"
+                },
+                "requests": [
+                    {
+                        "aspectRatio": aspect_ratio_setting,
+                        "seed": 100000,
+                        "textInput": {"prompt": scene['videoPrompt']},
+                        # Không có promptExpansionInput với imageInputs
+                        # Không có startImage
+                        "videoModelKey": model_key,
+                        "metadata": {"sceneId": str(uuid.uuid4())}
+                    }
+                ]
+            }
+
+        # Gửi request
         res = requests.post(video_url, headers=headers, data=json.dumps(body))
 
         if not res.ok:
-            messagebox.showerror("Lỗi", "Token không hợp lệ.")
-            return {"status": 0, "message": "Không có dữ liệu", "code": res.status_code}
+            print(f"Lỗi API Video: {res.text}")
+            # Không show popup lỗi ở đây để tránh spam khi chạy batch
+            return {"status": 0, "message": f"Lỗi API: {res.status_code}", "code": res.status_code}
 
         data = res.json()
         return data
 
     except Exception as e:
-        messagebox.showerror("Lỗi", e)
-        return {"status": 0, "message": "Lỗi proxy"}
+        print(f"Lỗi generateVideoForScene: {e}")
+        return {"status": 0, "message": str(e)}
 
 
 def check_video_generation_status(name: str, screen_id: str):

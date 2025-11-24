@@ -9,6 +9,7 @@ from app.utils.helper import load_config
 from app.views.result_view import ResultApp
 from app.views.setup_window import SetupWindow
 from app.views.main_app_view import MainApp
+from app.views.upload_view import UploadView # <-- IMPORT MỚI
 
 CONFIG_FILE = "config.json"
 
@@ -44,6 +45,12 @@ class Application(customtkinter.CTk):
                                                          command=self.show_main_app_view)
         self.new_project_button.pack(pady=10, padx=20, fill="x")
 
+        self.upload_button = customtkinter.CTkButton(self.menu_frame, text="Batch Video (Excel)",
+                                                     command=self.show_upload_view,
+                                                     fg_color="#E04F5F",
+                                                     hover_color="#C03947")  # Màu khác cho dễ phân biệt
+        self.upload_button.pack(pady=10, padx=20, fill="x")
+
         self.logout_button = customtkinter.CTkButton(self.menu_frame, text="Logout",
                                                     command=self.show_setup_view,
                                                     fg_color="transparent", border_width=2)
@@ -53,6 +60,8 @@ class Application(customtkinter.CTk):
         # Lưu ý: Parent của chúng là self.container
         self.setup_frame = SetupWindow(self.container, submit_command=self.start_validation_thread)
         self.main_app_frame = MainApp(self.container, create_story=self.create_story)
+        self.upload_view_frame = UploadView(self.container,
+                                            back_command=self.show_main_app_view)  # <-- KHỞI TẠO VIEW MỚI
         self.result_app_frame = None # Sẽ được tạo khi cần
 
         # 5. Tải config và hiển thị màn hình đầu tiên
@@ -67,6 +76,17 @@ class Application(customtkinter.CTk):
         self.show_setup_view()
 
     # --- CÁC HÀM QUẢN LÝ VIEW (MỚI) ---
+    def show_upload_view(self):
+        """Hiển thị màn hình Upload Excel."""
+        self.menu_frame.pack(side="left", fill="y")  # Đảm bảo menu hiện
+
+        self.setup_frame.pack_forget()
+        self.main_app_frame.pack_forget()
+        if self.result_app_frame:
+            self.result_app_frame.pack_forget()
+
+        self.upload_view_frame.pack(expand=True, fill="both", padx=20, pady=20)
+        self.title("Batch Video Processing")
 
     def show_setup_view(self):
         """Hiển thị màn hình đăng nhập VÀ ẨN menu."""
